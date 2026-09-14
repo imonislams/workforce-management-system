@@ -1,492 +1,173 @@
-# Attendance Management System — Database Design
+# Workforce Management System — Database Schema Specification
 
-## 1. Database
+## 1. Entity Relationship Overview
 
-Database engine:
+The database uses InnoDB engine (MySQL) or SQLite with foreign key constraints enabled.
 
-```text
-MySQL
 ```
-
-Use:
-
-* Foreign keys
-* Indexes
-* Unique constraints
-* Timestamps
-* Soft deletes where appropriate
-
----
-
-# 2. Entity Relationship Overview
-
-```text
-users
-  |
-  | 1:1
-  v
-employees
-  |
-  +------ departments
-  |
-  +------ designations
-  |
-  +------ attendance
-  |
-  +------ leaves
-  |
-  +------ work_schedules
+       +--------------------+
+       |       users        |
+       +--------------------+
+                 | 1:1
+                 v
+       +--------------------+         +--------------------+
+       |     employees      | --------> |    departments     |
+       +--------------------+ 1:N     +--------------------+
+         |   |            | 1:N
+         |   |            +---------> +--------------------+
+         |   |                        |    designations    |
+         |   v 1:N                    +--------------------+
+         | +--------------------+
+         | |   work_schedules   |
+         | +--------------------+
+         |
+         +----------------------------------+
+         | 1:N                              | 1:N
+         v                                  v
++--------------------+            +--------------------+
+|     attendance     |            |       leaves       |
++--------------------+            +--------------------+
+                                            | N:1
+                                            v
+                                  +--------------------+
+                                  |    leave_types     |
+                                  +--------------------+
 ```
 
 ---
 
-# 3. users
+## 2. Table Specifications
 
-Purpose:
+### 2.1 `users`
+Stores user credentials for both Administrators and Employees.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `name` (VARCHAR(255), Not Null)
+- `email` (VARCHAR(255), Unique, Not Null)
+- `email_verified_at` (TIMESTAMP, Nullable)
+- `password` (VARCHAR(255), Not Null)
+- `role` (ENUM('admin', 'employee'), Default 'employee', Not Null, Index)
+- `status` (ENUM('active', 'inactive'), Default 'active', Not Null, Index)
+- `remember_token` (VARCHAR(100), Nullable)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
-Stores authentication accounts.
+### 2.2 `departments`
+Master record for organizational departments.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `name` (VARCHAR(255), Unique, Not Null)
+- `description` (TEXT, Nullable)
+- `status` (ENUM('active', 'inactive'), Default 'active', Not Null, Index)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
-Fields:
+### 2.3 `designations`
+Master record for job titles and designations.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `name` (VARCHAR(255), Unique, Not Null)
+- `description` (TEXT, Nullable)
+- `status` (ENUM('active', 'inactive'), Default 'active', Not Null, Index)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
-```text
-id
-name
-email
-password
-role
-email_verified_at
-remember_token
-created_at
-updated_at
-```
+### 2.4 `work_schedules`
+Shift schedules detailing work hours, break times, and grace periods.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `name` (VARCHAR(255), Not Null)
+- `start_time` (TIME, Not Null) -- e.g. 09:00:00
+- `end_time` (TIME, Not Null) -- e.g. 17:00:00
+- `break_start` (TIME, Nullable) -- e.g. 13:00:00
+- `break_end` (TIME, Nullable) -- e.g. 14:00:00
+- `grace_period` (INT UNSIGNED, Default 15, Not Null) -- Minutes late allowed before marked Late
+- `status` (ENUM('active', 'inactive'), Default 'active', Not Null, Index)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
-Role:
+### 2.5 `employees`
+Core employee profile information.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `user_id` (BIGINT UNSIGNED, Unique, Nullable, Foreign Key -> `users.id` ON DELETE SET NULL)
+- `employee_code` (VARCHAR(50), Unique, Not Null, Index) -- e.g. EMP-0001
+- `first_name` (VARCHAR(255), Not Null)
+- `last_name` (VARCHAR(255), Not Null)
+- `email` (VARCHAR(255), Unique, Not Null)
+- `phone` (VARCHAR(50), Nullable)
+- `date_of_birth` (DATE, Nullable)
+- `gender` (ENUM('male', 'female', 'other'), Nullable)
+- `address` (TEXT, Nullable)
+- `department_id` (BIGINT UNSIGNED, Nullable, Foreign Key -> `departments.id` ON DELETE SET NULL, Index)
+- `designation_id` (BIGINT UNSIGNED, Nullable, Foreign Key -> `designations.id` ON DELETE SET NULL, Index)
+- `work_schedule_id` (BIGINT UNSIGNED, Nullable, Foreign Key -> `work_schedules.id` ON DELETE SET NULL, Index)
+- `joining_date` (DATE, Not Null)
+- `employment_status` (ENUM('active', 'inactive', 'terminated'), Default 'active', Not Null, Index)
+- `photo` (VARCHAR(255), Nullable)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
+- `deleted_at` (TIMESTAMP, Nullable) -- Soft delete support
 
-```text
-admin
-employee
-```
+### 2.6 `attendance`
+Daily attendance records for employees. Strictly one record per employee per date.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `employee_id` (BIGINT UNSIGNED, Not Null, Foreign Key -> `employees.id` ON DELETE CASCADE, Index)
+- `date` (DATE, Not Null, Index)
+- `check_in` (DATETIME, Nullable)
+- `check_out` (DATETIME, Nullable)
+- `status` (ENUM('present', 'late', 'absent', 'half_day', 'leave', 'holiday'), Not Null, Index)
+- `late_minutes` (INT UNSIGNED, Default 0, Not Null)
+- `early_leave_minutes` (INT UNSIGNED, Default 0, Not Null)
+- `overtime_minutes` (INT UNSIGNED, Default 0, Not Null)
+- `working_hours` (DECIMAL(5, 2), Default 0.00, Not Null)
+- `notes` (TEXT, Nullable)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
+- **Unique Constraint**: `UNIQUE (employee_id, date)`
 
-Rules:
+### 2.7 `leave_types`
+Configuration of available leave types.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `name` (VARCHAR(255), Unique, Not Null) -- e.g. Sick Leave, Annual Leave
+- `code` (VARCHAR(50), Unique, Not Null) -- e.g. SL, AL
+- `max_days` (INT UNSIGNED, Default 14, Not Null)
+- `description` (TEXT, Nullable)
+- `status` (ENUM('active', 'inactive'), Default 'active', Not Null, Index)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
-* Email must be unique.
-* Admin does not require employee_id.
-* Employee must have a linked employee profile.
+### 2.8 `leaves`
+Leave application records and approval history.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `employee_id` (BIGINT UNSIGNED, Not Null, Foreign Key -> `employees.id` ON DELETE CASCADE, Index)
+- `leave_type_id` (BIGINT UNSIGNED, Not Null, Foreign Key -> `leave_types.id` ON DELETE CASCADE, Index)
+- `start_date` (DATE, Not Null, Index)
+- `end_date` (DATE, Not Null, Index)
+- `total_days` (INT UNSIGNED, Not Null)
+- `reason` (TEXT, Not Null)
+- `status` (ENUM('pending', 'approved', 'rejected', 'cancelled'), Default 'pending', Not Null, Index)
+- `admin_note` (TEXT, Nullable)
+- `approved_by` (BIGINT UNSIGNED, Nullable, Foreign Key -> `users.id` ON DELETE SET NULL)
+- `approved_at` (DATETIME, Nullable)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
----
-
-# 4. employees
-
-Fields:
-
-```text
-id
-employee_code
-user_id
-first_name
-last_name
-email
-phone
-date_of_birth
-gender
-address
-department_id
-designation_id
-joining_date
-employment_status
-profile_photo
-basic_salary
-work_schedule_id
-created_at
-updated_at
-deleted_at
-```
-
-Constraints:
-
-```text
-employee_code UNIQUE
-user_id UNIQUE
-```
-
-Relationships:
-
-```text
-Employee belongsTo User
-Employee belongsTo Department
-Employee belongsTo Designation
-Employee belongsTo WorkSchedule
-Employee hasMany Attendance
-Employee hasMany Leave
-```
-
----
-
-# 5. departments
-
-Fields:
-
-```text
-id
-name
-description
-status
-created_at
-updated_at
-```
-
-Relationship:
-
-```text
-Department hasMany Employees
-```
-
----
-
-# 6. designations
-
-Fields:
-
-```text
-id
-name
-description
-status
-created_at
-updated_at
-```
-
-Relationship:
-
-```text
-Designation hasMany Employees
-```
+### 2.9 `settings`
+System settings stored as key-value pairs.
+- `id` (BIGINT UNSIGNED, Primary Key, Auto Increment)
+- `key` (VARCHAR(255), Unique, Not Null, Index)
+- `value` (TEXT, Nullable)
+- `created_at` (TIMESTAMP, Nullable)
+- `updated_at` (TIMESTAMP, Nullable)
 
 ---
 
-# 7. work_schedules
-
-Fields:
-
-```text
-id
-name
-start_time
-end_time
-break_start
-break_end
-grace_period
-status
-created_at
-updated_at
-```
-
-Example:
-
-```text
-Office Schedule
-09:00 - 17:00
-Grace Period: 15 minutes
-```
-
-Relationship:
-
-```text
-WorkSchedule hasMany Employees
-```
-
----
-
-# 8. attendance
-
-Fields:
-
-```text
-id
-employee_id
-date
-check_in
-check_out
-status
-late_minutes
-early_leave_minutes
-overtime_minutes
-working_hours
-notes
-created_at
-updated_at
-```
-
-Unique constraint:
-
-```text
-employee_id + date
-```
-
-Relationship:
-
-```text
-Attendance belongsTo Employee
-```
-
----
-
-# 9. attendance status
-
-Allowed values:
-
-```text
-present
-late
-absent
-half_day
-leave
-holiday
-```
-
----
-
-# 10. leave_types
-
-Fields:
-
-```text
-id
-name
-description
-default_days
-status
-created_at
-updated_at
-```
-
-Examples:
-
-```text
-Casual Leave
-Sick Leave
-Annual Leave
-Emergency Leave
-```
-
----
-
-# 11. leaves
-
-Fields:
-
-```text
-id
-employee_id
-leave_type_id
-start_date
-end_date
-total_days
-reason
-status
-admin_note
-approved_by
-approved_at
-created_at
-updated_at
-```
-
-Status:
-
-```text
-pending
-approved
-rejected
-cancelled
-```
-
-Relationships:
-
-```text
-Leave belongsTo Employee
-Leave belongsTo LeaveType
-Leave belongsTo User through approved_by
-```
-
----
-
-# 12. settings
-
-Fields:
-
-```text
-id
-key
-value
-type
-created_at
-updated_at
-```
-
-Examples:
-
-```text
-company_name
-company_email
-company_phone
-company_address
-timezone
-date_format
-office_start_time
-office_end_time
-grace_period
-currency
-```
-
-Settings should not be hardcoded into controllers or Blade files.
-
----
-
-# 13. notifications
-
-Use Laravel's notification structure if database notifications are required.
-
-Recommended fields:
-
-```text
-id
-type
-notifiable_type
-notifiable_id
-data
-read_at
-created_at
-updated_at
-```
-
----
-
-# 14. Indexes
-
-Recommended indexes:
-
-```text
-users.email
-
-employees.employee_code
-employees.user_id
-employees.department_id
-employees.designation_id
-
-attendance.employee_id
-attendance.date
-attendance.employee_id + date
-
-leaves.employee_id
-leaves.leave_type_id
-leaves.status
-leaves.start_date
-leaves.end_date
-```
-
----
-
-# 15. Important Database Rules
-
-## Admin
-
-An admin user can exist without an employee record.
-
-```text
-users.role = admin
-employees = NULL
-```
-
-This is valid.
-
----
-
-## Employee
-
-An employee user must have an employee record.
-
-```text
-users.role = employee
-employees.user_id = users.id
-```
-
----
-
-# 16. Data Integrity
-
-Use foreign keys.
-
-Example:
-
-```text
-employees.department_id
-        ↓
-departments.id
-```
-
-When deleting related records, choose appropriate behavior.
-
-Avoid accidental cascading deletion of important attendance records.
-
----
-
-# 17. Migration Order
-
-Recommended migration order:
-
-```text
-users
-departments
-designations
-work_schedules
-employees
-leave_types
-attendance
-leaves
-settings
-notifications
-```
-
----
-
-# 18. Seeder Order
-
-Seed:
-
-```text
-Admin
-Departments
-Designations
-Work Schedules
-Employees
-Employee Users
-Leave Types
-Attendance
-Leaves
-Settings
-```
-
-Default Admin:
-
-```text
-Email:
-admin@example.com
-
-Password:
-password
-```
-
----
-
-# 19. Database Testing
-
-Tests must verify:
-
-* Unique employee code
-* Unique email
-* Foreign keys
-* Admin without employee profile
-* Employee with employee profile
-* One attendance record per employee per date
-* Valid leave date range
-* Valid attendance relationship
+## 3. Key Indexes & Rules
+1. **Unique Constraint**: `attendance (employee_id, date)` strictly prevents duplicate attendance entries for an employee on the same date.
+2. **Unique Constraints**:
+   - `users.email`
+   - `employees.employee_code`
+   - `employees.email`
+   - `departments.name`
+   - `designations.name`
+   - `leave_types.name`, `leave_types.code`
+   - `settings.key`
+3. **Foreign Key Integrity**:
+   - Deleting an employee cascades to delete their `attendance` and `leaves` records.
+   - Deleting department, designation, or schedule sets corresponding employee fields to `NULL`.
