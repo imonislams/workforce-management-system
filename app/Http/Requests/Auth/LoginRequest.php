@@ -14,7 +14,7 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'login_type' => ['required', 'in:admin,employee'],
+            'login_type' => ['nullable', 'string', 'in:admin,employee'],
             'email' => ['required_if:login_type,admin', 'nullable', 'email'],
             'employee_code' => ['required_if:login_type,employee', 'nullable', 'string'],
             'password' => ['required', 'string'],
